@@ -1,6 +1,6 @@
 ---
 name: knip-detect-unlisted-binaries
-description: Knipの「unlisted binaries」を意図的に再現したい時に使う。検証コードを create/verify/cleanup の3モードで安全に操作し、検証後は cleanup で元に戻す時に使う。
+description: Knipの「unlisted binaries」を意図的に再現したい時に使う。検証用の差分を create で生成し、Knip実行とcleanupは手動で行う create-only スキル。
 ---
 
 # Knip Detect Unlisted Binaries
@@ -13,49 +13,39 @@ description: Knipの「unlisted binaries」を意図的に再現したい時に�
 python3 .codex/skills/knip-detect-unlisted-binaries/scripts/scenario.py --mode create
 ```
 
-2. Knipで検出を確認する。
-
-```bash
-python3 .codex/skills/knip-detect-unlisted-binaries/scripts/scenario.py --mode verify
-```
-
-3. 検証後は必ず元に戻す。
-
-```bash
-python3 .codex/skills/knip-detect-unlisted-binaries/scripts/scenario.py --mode cleanup
-```
+2. `npm run knip` を実行して手動検証する。
+   （`nextSteps.verifyCommand` は `npm run knip` を返す）
+3. 出力された `nextSteps.cleanupCommands` で手動cleanupする。
 
 ## Scenario
 
-- 目的: 未登録バイナリ (`unlisted binaries`) を再現する
+- 目的: `unlisted binaries` を再現する
 - create動作: package.json の scripts に未宣言CLI(tsx)の実行を追加する。
-- cleanup動作: 追加した検証用scriptを削除する。
 
 ## Safety Rules
 
 - 変更対象は原則 `src/knip-lab/<issue>/` または `package.json` の最小差分に限定する。
 - 1つのシナリオを適用中に、他のシナリオを重ねて実行しない。
-- cleanup後に `git status` で差分が残っていないことを確認する。
+- このスキルはリポジトリ状態を自動で元に戻さない。検証後は必ず `nextSteps.cleanupCommands` を手動実行する。
 
 ## Expected Output
 
-- `verify` 実行時に Knip の出力で `unlisted binaries` に対応する問題が1件以上確認できる。
-- スクリプトは `changedFiles`、`expectedIssue`、`verifyCommand` を出力する。
+- スクリプトは `simulationIntro`、`changedFiles`、`changePreview`、`runSummary`、`nextSteps` を出力する。
+- `nextSteps.verifyCommand` には `npm run knip` が表示される。
+- `nextSteps.cleanupCommands` に手動復旧用のコマンド群が表示される。
 
-## Rollback Rules
+## Manual Verify/Cleanup
 
-- cleanupに失敗した場合は同じコマンドを再実行する。
-- `package.json` を変更するシナリオでは、必要に応じて `npm install --package-lock-only --ignore-scripts` を実行して lockfile を再同期する。
+- verify: `npm run knip` を実行して Knip の検出結果を確認する。
+- 参考: `nextSteps.verifyCommand` にも同じコマンド（`npm run knip`）が表示される。
+- cleanup: `nextSteps.cleanupCommands` を上から順に実行して差分を元に戻す。
+- 必要に応じて `git status` で差分が解消されたことを確認する。
 
 ## Reporting Rules
 
 - 出力は「生ログ貼り付け」ではなく、ユーザー向けに短い進行メッセージで説明する。
 - 冒頭で1-2文: 「今から何のKnip挙動を試すか」を自然文で伝える。
 - `create` 後に1-3文: 「何を追加/変更したか」を伝え、`changePreview` から最小1つのコード断片（行番号付き）だけ提示する。
-- `verify` 前に1文: 「今からKnipで検出確認する」と伝える。
-- `verify` 後に1-2文: 「何が何件検出されたか」を `verifySummary.detectedCount` と `matches` で要約して伝える。
-- `cleanup` 前後で各1文: 「片付ける」→「片付け完了」を伝える。
-- 最後に締め1-2文: 「今回のシミュレーションで、どの変更をKnipで検知できたか」を自然文でまとめる。
-- `simulationIntro` / `runSummary` / `changePreview` / `verifySummary` は、必要箇所だけ読み取って要約し、全文をそのまま貼らない。
-- 実行は最終一括報告ではなく、`create` / `verify` / `cleanup` の各ステップ完了直後に都度ユーザーへ1-3文で報告する。
-- ステップ報告の基本形: 「今から何をする」→「実行した」→「結果（件数/対象）」→「次に何をする」。
+- このスキルでは `verify` と `cleanup` を自動実行しない。`nextSteps` のコマンドを提示して手動実行を案内する。
+- 最後に締め1-2文: 「今回のシミュレーションで、次に何を手動実行すればよいか」を自然文でまとめる。
+- `simulationIntro` / `runSummary` / `changePreview` / `nextSteps` は、必要箇所だけ読み取って要約し、全文をそのまま貼らない。
