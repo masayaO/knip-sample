@@ -1,4 +1,3 @@
-import './knip-lab/unresolved-imports/broken-import.js'; // knip-scenario-import
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
