@@ -18,6 +18,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unused-files",
         "entry_file": None,
         "scope": "target_root",
+        "simulation": "どこからも参照されない孤立ファイルを作り、Knipが未使用ファイルを検出できる挙動を試す。",
     },
     "unused-dependencies": {
         "expected_issue": "unused devdependencies",
@@ -26,6 +27,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unused-dependencies",
         "entry_file": None,
         "scope": "package_json",
+        "simulation": "package.jsonに未使用のdevDependencyを追加し、Knipが未使用依存を検出できる挙動を試す。",
     },
     "unused-exports": {
         "expected_issue": "unused exports",
@@ -34,6 +36,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unused-exports",
         "entry_file": "lib.js",
         "scope": "target_root",
+        "simulation": "未参照のexport関数を作り、Knipが未使用エクスポートを検出できる挙動を試す。",
     },
     "unlisted-dependencies": {
         "expected_issue": "unlisted dependencies",
@@ -42,6 +45,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unlisted-dependencies",
         "entry_file": "use-dayjs.js",
         "scope": "target_root",
+        "simulation": "未宣言パッケージをimportして、Knipが未登録依存を検出できる挙動を試す。",
     },
     "unlisted-binaries": {
         "expected_issue": "unlisted binaries",
@@ -50,6 +54,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unlisted-binaries",
         "entry_file": None,
         "scope": "package_json",
+        "simulation": "未宣言CLIをscriptsで呼び出し、Knipが未登録バイナリを検出できる挙動を試す。",
     },
     "unresolved-imports": {
         "expected_issue": "unresolved imports",
@@ -58,6 +63,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unresolved-imports",
         "entry_file": "broken-import.js",
         "scope": "target_root",
+        "simulation": "存在しないモジュールをimportして、Knipが未解決importを検出できる挙動を試す。",
     },
     "duplicate-exports": {
         "expected_issue": "duplicate exports",
@@ -66,6 +72,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "duplicate-exports",
         "entry_file": "index.js",
         "scope": "target_root",
+        "simulation": "重複したexport定義を作り、Knipが重複エクスポートを検出できる挙動を試す。",
     },
     "unused-exported-types": {
         "expected_issue": "unused exported types",
@@ -74,6 +81,7 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
         "target_subdir": "unused-exported-types",
         "entry_file": "types.ts",
         "scope": "target_root",
+        "simulation": "未参照のexport typeを作り、Knipが未使用エクスポート型を検出できる挙動を試す。",
     },
 }
 
@@ -352,9 +360,44 @@ def print_change_preview(changed: List[Path], scenario_key: str) -> None:
         print("- (no file preview)")
 
 
+def print_intro(mode: str, scenario: Dict[str, object], target_root: Path) -> None:
+    print("simulationIntro:")
+    print("- skill: {}".format(SKILL_NAME))
+    print("- mode: {}".format(mode))
+    print("- whatToSimulate: {}".format(scenario["simulation"]))
+    print("- expectedIssue: {}".format(scenario["expected_issue"]))
+    print("- targetRoot: {}".format(target_root))
+    print("- verifyWith: npm run knip -- --reporter json --include {} --no-exit-code".format(scenario["include_type"]))
+
+
+def print_outro(mode: str, scenario: Dict[str, object], changed: List[Path], detected_count: Optional[int] = None, matches: Optional[List[str]] = None, status: str = "ok") -> None:
+    print("runSummary:")
+    print("- mode: {}".format(mode))
+    print("- simulatedIssue: {}".format(scenario["expected_issue"]))
+    print("- status: {}".format(status))
+    if mode in {"create", "cleanup"}:
+        print("- changedCount: {}".format(len(changed)))
+        print("- changedFiles:")
+        if changed:
+            for p in changed:
+                print("  - {}".format(p.relative_to(repo_root())))
+        else:
+            print("  - (none)")
+    if mode == "verify":
+        print("- detectedCount: {}".format(detected_count if detected_count is not None else 0))
+        print("- detectedMatches:")
+        if matches:
+            for item in matches[:10]:
+                print("  - {}".format(item))
+            if len(matches) > 10:
+                print("  - ... and {} more".format(len(matches) - 10))
+        else:
+            print("  - (none)")
+        print("- message: 今回追加した変更はKnipで検知できました。" if (detected_count or 0) > 0 else "- message: 期待した検知は確認できませんでした。")
+
+
 def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
     include_type = str(scenario["include_type"])
-    expected_issue = str(scenario["expected_issue"])
 
     cmd = ["npm", "run", "knip", "--", "--reporter", "json", "--include", include_type, "--no-exit-code"]
     proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True)
@@ -365,12 +408,13 @@ def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
     if not data:
         print("[error] Failed to parse Knip JSON output.")
         print(proc.stdout.strip())
+        print_outro("verify", scenario, [], detected_count=0, matches=[], status="error")
         return 1
 
     count, matches = summarize_matches(data, scenario, target_root)
 
     print("verifySummary:")
-    print("- expectedIssue: {}".format(expected_issue))
+    print("- expectedIssue: {}".format(scenario["expected_issue"]))
     print("- includeType: {}".format(include_type))
     print("- detectedCount: {}".format(count))
     print("- matches:")
@@ -384,13 +428,16 @@ def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
 
     if count > 0:
         print("[ok] Expected issue detected")
+        print_outro("verify", scenario, [], detected_count=count, matches=matches, status="ok")
         return 0
 
     if SCENARIO_KEY == "duplicate-exports":
         print("[warn] No duplicates detected in current Knip version/output. This scenario may fall back to other issue types.")
+        print_outro("verify", scenario, [], detected_count=count, matches=matches, status="warn")
         return 0
 
     print("[error] Expected issue not detected")
+    print_outro("verify", scenario, [], detected_count=count, matches=matches, status="error")
     return 1
 
 
@@ -403,11 +450,7 @@ def main() -> int:
     scenario = SCENARIOS[SCENARIO_KEY]
     target_root = resolve_target_root(args.targetRoot, str(scenario["target_subdir"]))
 
-    print("skill: {}".format(SKILL_NAME))
-    print("mode: {}".format(args.mode))
-    print("targetRoot: {}".format(target_root))
-    print("expectedIssue: {}".format(scenario["expected_issue"]))
-    print("verifyCommand: npm run knip -- --reporter json --include {} --no-exit-code".format(scenario["include_type"]))
+    print_intro(args.mode, scenario, target_root)
 
     changed: List[Path] = []
 
@@ -428,6 +471,7 @@ def main() -> int:
     if args.mode == "create":
         print_change_preview(changed, SCENARIO_KEY)
 
+    print_outro(args.mode, scenario, changed, status="ok")
     return 0
 
 
