@@ -52,3 +52,5 @@ python3 .codex/skills/knip-detect-unused-exported-types/scripts/scenario.py --mo
 - `create` 実行後は、標準出力の `changePreview` を要約せずにそのまま表示する。
 - 少なくとも1ファイル分は、行番号付きコード断片をそのまま示す。
 - `verify` 実行後は `verifySummary.detectedCount` と `matches` を必ず表示する。
+- 各モードの開始時に出る `simulationIntro` を、要約せずそのまま表示する。
+- 各モードの終了時に出る `runSummary` を、要約せずそのまま表示する。
