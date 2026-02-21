@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 SCENARIO_KEY = "duplicate-exports"
 SKILL_NAME = "knip-detect-duplicate-exports"
@@ -14,66 +13,58 @@ SCENARIOS: Dict[str, Dict[str, object]] = {
     "unused-files": {
         "expected_issue": "unused files",
         "include_type": "files",
-        "issue_keys": ["files"],
         "target_subdir": "unused-files",
         "entry_file": None,
-        "scope": "target_root",
+        "simulation": "どこからも参照されない孤立ファイルを作り、Knipが未使用ファイルを検出できる挙動を試す。",
     },
     "unused-dependencies": {
         "expected_issue": "unused devdependencies",
         "include_type": "dependencies",
-        "issue_keys": ["dependencies", "devDependencies", "optionalPeerDependencies"],
         "target_subdir": "unused-dependencies",
         "entry_file": None,
-        "scope": "package_json",
+        "simulation": "package.jsonに未使用のdevDependencyを追加し、Knipが未使用依存を検出できる挙動を試す。",
     },
     "unused-exports": {
         "expected_issue": "unused exports",
         "include_type": "exports",
-        "issue_keys": ["exports"],
         "target_subdir": "unused-exports",
         "entry_file": "lib.js",
-        "scope": "target_root",
+        "simulation": "未参照のexport関数を作り、Knipが未使用エクスポートを検出できる挙動を試す。",
     },
     "unlisted-dependencies": {
         "expected_issue": "unlisted dependencies",
         "include_type": "unlisted",
-        "issue_keys": ["unlisted"],
         "target_subdir": "unlisted-dependencies",
         "entry_file": "use-dayjs.js",
-        "scope": "target_root",
+        "simulation": "未宣言パッケージをimportして、Knipが未登録依存を検出できる挙動を試す。",
     },
     "unlisted-binaries": {
         "expected_issue": "unlisted binaries",
         "include_type": "binaries",
-        "issue_keys": ["binaries"],
         "target_subdir": "unlisted-binaries",
         "entry_file": None,
-        "scope": "package_json",
+        "simulation": "未宣言CLIをscriptsで呼び出し、Knipが未登録バイナリを検出できる挙動を試す。",
     },
     "unresolved-imports": {
         "expected_issue": "unresolved imports",
         "include_type": "unresolved",
-        "issue_keys": ["unresolved"],
         "target_subdir": "unresolved-imports",
         "entry_file": "broken-import.js",
-        "scope": "target_root",
+        "simulation": "存在しないモジュールをimportして、Knipが未解決importを検出できる挙動を試す。",
     },
     "duplicate-exports": {
         "expected_issue": "duplicate exports",
         "include_type": "duplicates",
-        "issue_keys": ["duplicates"],
         "target_subdir": "duplicate-exports",
         "entry_file": "index.js",
-        "scope": "target_root",
+        "simulation": "重複したexport定義を作り、Knipが重複エクスポートを検出できる挙動を試す。",
     },
     "unused-exported-types": {
         "expected_issue": "unused exported types",
         "include_type": "types",
-        "issue_keys": ["types"],
         "target_subdir": "unused-exported-types",
         "entry_file": "types.ts",
-        "scope": "target_root",
+        "simulation": "未参照のexport typeを作り、Knipが未使用エクスポート型を検出できる挙動を試す。",
     },
 }
 
@@ -92,6 +83,14 @@ def resolve_target_root(arg: Optional[str], subdir: str) -> Path:
     return root / "src" / "knip-lab" / subdir
 
 
+def display_path(path: Path) -> str:
+    root = repo_root()
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
 def write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -105,7 +104,10 @@ def save_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def sync_lockfile() -> None:
+def sync_lockfile(changed: List[Path]) -> None:
+    lockfile = repo_root() / "package-lock.json"
+    before = lockfile.read_text(encoding="utf-8") if lockfile.exists() else None
+
     proc = subprocess.run(
         ["npm", "install", "--package-lock-only", "--ignore-scripts"],
         cwd=repo_root(),
@@ -117,6 +119,11 @@ def sync_lockfile() -> None:
         print("       npm install --package-lock-only --ignore-scripts")
         if proc.stderr:
             print(proc.stderr.strip())
+        return
+
+    after = lockfile.read_text(encoding="utf-8") if lockfile.exists() else None
+    if before != after:
+        changed.append(lockfile)
 
 
 def update_main_import(entry_file: Optional[str], subdir: str, add: bool) -> bool:
@@ -186,7 +193,7 @@ def apply_scenario_create(key: str, target_root: Path, changed: List[Path]) -> N
             dev["left-pad"] = "^1.3.0"
             save_json(pkg, data)
             changed.append(pkg)
-            sync_lockfile()
+            sync_lockfile(changed)
         return
 
     elif key == "unlisted-binaries":
@@ -202,96 +209,6 @@ def apply_scenario_create(key: str, target_root: Path, changed: List[Path]) -> N
 
     if update_main_import(SCENARIOS[key]["entry_file"], subdir, add=True):
         changed.append(root / "src" / "main.jsx")
-
-
-def apply_scenario_cleanup(key: str, target_root: Path, changed: List[Path]) -> None:
-    root = repo_root()
-    subdir = str(SCENARIOS[key]["target_subdir"])
-
-    if key in {
-        "unused-files",
-        "unused-exports",
-        "unlisted-dependencies",
-        "unresolved-imports",
-        "duplicate-exports",
-        "unused-exported-types",
-    }:
-        if update_main_import(SCENARIOS[key]["entry_file"], subdir, add=False):
-            changed.append(root / "src" / "main.jsx")
-        if target_root.exists():
-            shutil.rmtree(target_root)
-            changed.append(target_root)
-        return
-
-    pkg = root / "package.json"
-    data = load_json(pkg)
-
-    if key == "unused-dependencies":
-        dev = data.get("devDependencies", {})
-        if "left-pad" in dev:
-            del dev["left-pad"]
-            save_json(pkg, data)
-            changed.append(pkg)
-            sync_lockfile()
-        return
-
-    if key == "unlisted-binaries":
-        scripts = data.get("scripts", {})
-        marker = "knip:scenario:unlisted-binary"
-        if marker in scripts:
-            del scripts[marker]
-            save_json(pkg, data)
-            changed.append(pkg)
-        return
-
-
-def extract_json(stdout: str) -> dict:
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    for line in reversed(lines):
-        if line.startswith("{") and line.endswith("}"):
-            return json.loads(line)
-    return {}
-
-
-def summarize_matches(data: dict, scenario: Dict[str, object], target_root: Path) -> Tuple[int, List[str]]:
-    include_type = str(scenario["include_type"])
-    issue_keys = [str(k) for k in scenario["issue_keys"]]
-    scope = str(scenario["scope"])
-
-    matches: List[str] = []
-
-    if include_type == "files":
-        for file_path in data.get("files", []):
-            if scope == "target_root":
-                abs_file = repo_root() / file_path
-                if not str(abs_file).startswith(str(target_root)):
-                    continue
-            matches.append(str(file_path))
-        return len(matches), matches
-
-    for issue in data.get("issues", []):
-        file_path = issue.get("file", "(unknown)")
-        if scope == "target_root" and file_path != "(unknown)":
-            abs_file = repo_root() / file_path
-            if not str(abs_file).startswith(str(target_root)):
-                continue
-
-        for key in issue_keys:
-            entries = issue.get(key, [])
-            if not isinstance(entries, list):
-                continue
-            for item in entries:
-                if isinstance(item, dict):
-                    name = item.get("name", "(unknown)")
-                    line = item.get("line")
-                    if line is None:
-                        matches.append("{} @ {}".format(name, file_path))
-                    else:
-                        matches.append("{} @ {}:{}".format(name, file_path, line))
-                else:
-                    matches.append("{} @ {}".format(item, file_path))
-
-    return len(matches), matches
 
 
 def line_preview(path: Path, center_line: Optional[int] = None, radius: int = 3, max_lines: int = 40) -> List[str]:
@@ -324,7 +241,6 @@ def find_line_number(path: Path, needle: str) -> Optional[int]:
 
 
 def print_change_preview(changed: List[Path], scenario_key: str) -> None:
-    root = repo_root()
     print("changePreview:")
 
     has_preview = False
@@ -332,7 +248,6 @@ def print_change_preview(changed: List[Path], scenario_key: str) -> None:
         if not path.exists() or not path.is_file():
             continue
 
-        rel = path.relative_to(root)
         center = None
 
         if path.name == "main.jsx":
@@ -343,7 +258,7 @@ def print_change_preview(changed: List[Path], scenario_key: str) -> None:
             elif scenario_key == "unlisted-binaries":
                 center = find_line_number(path, '"knip:scenario:unlisted-binary"')
 
-        print("- file: {}".format(rel))
+        print("- file: {}".format(display_path(path)))
         for row in line_preview(path, center_line=center):
             print("  {}".format(row))
         has_preview = True
@@ -352,71 +267,79 @@ def print_change_preview(changed: List[Path], scenario_key: str) -> None:
         print("- (no file preview)")
 
 
-def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
-    include_type = str(scenario["include_type"])
-    expected_issue = str(scenario["expected_issue"])
+def build_verify_command(scenario: Dict[str, object]) -> str:
+    _ = scenario
+    return "npm run knip"
 
-    cmd = ["npm", "run", "knip", "--", "--reporter", "json", "--include", include_type, "--no-exit-code"]
-    proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True)
-    if proc.stderr.strip():
-        print(proc.stderr.strip())
 
-    data = extract_json(proc.stdout)
-    if not data:
-        print("[error] Failed to parse Knip JSON output.")
-        print(proc.stdout.strip())
-        return 1
+def build_cleanup_commands(changed: List[Path], target_root: Path) -> List[str]:
+    root = repo_root()
+    restore_files: List[str] = []
 
-    count, matches = summarize_matches(data, scenario, target_root)
+    for path in changed:
+        if not path.is_absolute():
+            continue
+        if not str(path).startswith(str(root)):
+            continue
+        rel = path.relative_to(root)
+        if rel == Path("package.json") or rel == Path("package-lock.json") or rel == Path("src/main.jsx"):
+            restore_files.append(str(rel))
 
-    print("verifySummary:")
-    print("- expectedIssue: {}".format(expected_issue))
-    print("- includeType: {}".format(include_type))
-    print("- detectedCount: {}".format(count))
-    print("- matches:")
-    if matches:
-        for item in matches[:20]:
-            print("  - {}".format(item))
-        if len(matches) > 20:
-            print("  - ... and {} more".format(len(matches) - 20))
+    dedup_restore = list(dict.fromkeys(restore_files))
+
+    commands: List[str] = []
+    if dedup_restore:
+        commands.append("git restore -- {}".format(" ".join(dedup_restore)))
+
+    commands.append("rm -rf {}".format(target_root))
+    return commands
+
+
+def print_intro(mode: str, scenario: Dict[str, object], target_root: Path) -> None:
+    print("simulationIntro:")
+    print("- skill: {}".format(SKILL_NAME))
+    print("- mode: {}".format(mode))
+    print("- whatToSimulate: {}".format(scenario["simulation"]))
+    print("- expectedIssue: {}".format(scenario["expected_issue"]))
+    print("- targetRoot: {}".format(target_root))
+    print("- verifyWith: {}".format(build_verify_command(scenario)))
+
+
+def print_outro(mode: str, scenario: Dict[str, object], changed: List[Path], status: str = "ok") -> None:
+    print("runSummary:")
+    print("- mode: {}".format(mode))
+    print("- simulatedIssue: {}".format(scenario["expected_issue"]))
+    print("- status: {}".format(status))
+    print("- changedCount: {}".format(len(changed)))
+    print("- changedFiles:")
+    if changed:
+        for p in changed:
+            print("  - {}".format(display_path(p)))
     else:
         print("  - (none)")
 
-    if count > 0:
-        print("[ok] Expected issue detected")
-        return 0
 
-    if SCENARIO_KEY == "duplicate-exports":
-        print("[warn] No duplicates detected in current Knip version/output. This scenario may fall back to other issue types.")
-        return 0
-
-    print("[error] Expected issue not detected")
-    return 1
+def print_next_steps(scenario: Dict[str, object], changed: List[Path], target_root: Path) -> None:
+    print("nextSteps:")
+    print("- verifyCommand: {}".format(build_verify_command(scenario)))
+    print("- cleanupCommands:")
+    for command in build_cleanup_commands(changed, target_root):
+        print("  - {}".format(command))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="{} scenario controller".format(SKILL_NAME))
-    parser.add_argument("--mode", choices=["create", "cleanup", "verify"], required=True)
+    parser.add_argument("--mode", choices=["create"], required=True)
     parser.add_argument("--targetRoot", default=None)
     args = parser.parse_args()
 
     scenario = SCENARIOS[SCENARIO_KEY]
     target_root = resolve_target_root(args.targetRoot, str(scenario["target_subdir"]))
 
-    print("skill: {}".format(SKILL_NAME))
-    print("mode: {}".format(args.mode))
-    print("targetRoot: {}".format(target_root))
-    print("expectedIssue: {}".format(scenario["expected_issue"]))
-    print("verifyCommand: npm run knip -- --reporter json --include {} --no-exit-code".format(scenario["include_type"]))
+    print_intro(args.mode, scenario, target_root)
 
     changed: List[Path] = []
-
-    if args.mode == "create":
-        apply_scenario_create(SCENARIO_KEY, target_root, changed)
-    elif args.mode == "cleanup":
-        apply_scenario_cleanup(SCENARIO_KEY, target_root, changed)
-    else:
-        return run_verify(scenario, target_root)
+    apply_scenario_create(SCENARIO_KEY, target_root, changed)
 
     print("changedFiles:")
     if changed:
@@ -425,9 +348,9 @@ def main() -> int:
     else:
         print("- (none)")
 
-    if args.mode == "create":
-        print_change_preview(changed, SCENARIO_KEY)
-
+    print_change_preview(changed, SCENARIO_KEY)
+    print_outro(args.mode, scenario, changed, status="ok")
+    print_next_steps(scenario, changed, target_root)
     return 0
 
 
