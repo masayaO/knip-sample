@@ -1,0 +1,3 @@
+interface:
+  display_name: "Knip Detect Unused Exports"
+  short_description: "Help with Knip Detect Unused Exports tasks"
