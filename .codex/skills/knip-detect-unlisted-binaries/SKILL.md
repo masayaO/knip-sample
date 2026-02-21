@@ -57,3 +57,5 @@ python3 .codex/skills/knip-detect-unlisted-binaries/scripts/scenario.py --mode c
 - `cleanup` 前後で各1文: 「片付ける」→「片付け完了」を伝える。
 - 最後に締め1-2文: 「今回のシミュレーションで、どの変更をKnipで検知できたか」を自然文でまとめる。
 - `simulationIntro` / `runSummary` / `changePreview` / `verifySummary` は、必要箇所だけ読み取って要約し、全文をそのまま貼らない。
+- 実行は最終一括報告ではなく、`create` / `verify` / `cleanup` の各ステップ完了直後に都度ユーザーへ1-3文で報告する。
+- ステップ報告の基本形: 「今から何をする」→「実行した」→「結果（件数/対象）」→「次に何をする」。
