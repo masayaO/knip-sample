@@ -49,8 +49,11 @@ python3 .codex/skills/knip-detect-unresolved-imports/scripts/scenario.py --mode 
 
 ## Reporting Rules
 
-- `create` 実行後は、標準出力の `changePreview` を要約せずにそのまま表示する。
-- 少なくとも1ファイル分は、行番号付きコード断片をそのまま示す。
-- `verify` 実行後は `verifySummary.detectedCount` と `matches` を必ず表示する。
-- 各モードの開始時に出る `simulationIntro` を、要約せずそのまま表示する。
-- 各モードの終了時に出る `runSummary` を、要約せずそのまま表示する。
+- 出力は「生ログ貼り付け」ではなく、ユーザー向けに短い進行メッセージで説明する。
+- 冒頭で1-2文: 「今から何のKnip挙動を試すか」を自然文で伝える。
+- `create` 後に1-3文: 「何を追加/変更したか」を伝え、`changePreview` から最小1つのコード断片（行番号付き）だけ提示する。
+- `verify` 前に1文: 「今からKnipで検出確認する」と伝える。
+- `verify` 後に1-2文: 「何が何件検出されたか」を `verifySummary.detectedCount` と `matches` で要約して伝える。
+- `cleanup` 前後で各1文: 「片付ける」→「片付け完了」を伝える。
+- 最後に締め1-2文: 「今回のシミュレーションで、どの変更をKnipで検知できたか」を自然文でまとめる。
+- `simulationIntro` / `runSummary` / `changePreview` / `verifySummary` は、必要箇所だけ読み取って要約し、全文をそのまま貼らない。
