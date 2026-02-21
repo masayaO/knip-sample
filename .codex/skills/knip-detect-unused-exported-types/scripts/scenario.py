@@ -4,21 +4,77 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 SCENARIO_KEY = "unused-exported-types"
 SKILL_NAME = "knip-detect-unused-exported-types"
 IMPORT_MARKER = "// knip-scenario-import"
 
-SCENARIOS = {
-    "unused-files": {"issue": "unused files", "target_subdir": "unused-files", "entry_file": None},
-    "unused-dependencies": {"issue": "unused devdependencies", "target_subdir": "unused-dependencies", "entry_file": None},
-    "unused-exports": {"issue": "unused exports", "target_subdir": "unused-exports", "entry_file": "lib.js"},
-    "unlisted-dependencies": {"issue": "unlisted dependencies", "target_subdir": "unlisted-dependencies", "entry_file": "use-dayjs.js"},
-    "unlisted-binaries": {"issue": "unlisted binaries", "target_subdir": "unlisted-binaries", "entry_file": None},
-    "unresolved-imports": {"issue": "unresolved imports", "target_subdir": "unresolved-imports", "entry_file": "broken-import.js"},
-    "duplicate-exports": {"issue": "duplicate exports", "target_subdir": "duplicate-exports", "entry_file": "index.js"},
-    "unused-exported-types": {"issue": "unused exported types", "target_subdir": "unused-exported-types", "entry_file": "types.ts"},
+SCENARIOS: Dict[str, Dict[str, object]] = {
+    "unused-files": {
+        "expected_issue": "unused files",
+        "include_type": "files",
+        "issue_keys": ["files"],
+        "target_subdir": "unused-files",
+        "entry_file": None,
+        "scope": "target_root",
+    },
+    "unused-dependencies": {
+        "expected_issue": "unused devdependencies",
+        "include_type": "dependencies",
+        "issue_keys": ["dependencies", "devDependencies", "optionalPeerDependencies"],
+        "target_subdir": "unused-dependencies",
+        "entry_file": None,
+        "scope": "package_json",
+    },
+    "unused-exports": {
+        "expected_issue": "unused exports",
+        "include_type": "exports",
+        "issue_keys": ["exports"],
+        "target_subdir": "unused-exports",
+        "entry_file": "lib.js",
+        "scope": "target_root",
+    },
+    "unlisted-dependencies": {
+        "expected_issue": "unlisted dependencies",
+        "include_type": "unlisted",
+        "issue_keys": ["unlisted"],
+        "target_subdir": "unlisted-dependencies",
+        "entry_file": "use-dayjs.js",
+        "scope": "target_root",
+    },
+    "unlisted-binaries": {
+        "expected_issue": "unlisted binaries",
+        "include_type": "binaries",
+        "issue_keys": ["binaries"],
+        "target_subdir": "unlisted-binaries",
+        "entry_file": None,
+        "scope": "package_json",
+    },
+    "unresolved-imports": {
+        "expected_issue": "unresolved imports",
+        "include_type": "unresolved",
+        "issue_keys": ["unresolved"],
+        "target_subdir": "unresolved-imports",
+        "entry_file": "broken-import.js",
+        "scope": "target_root",
+    },
+    "duplicate-exports": {
+        "expected_issue": "duplicate exports",
+        "include_type": "duplicates",
+        "issue_keys": ["duplicates"],
+        "target_subdir": "duplicate-exports",
+        "entry_file": "index.js",
+        "scope": "target_root",
+    },
+    "unused-exported-types": {
+        "expected_issue": "unused exported types",
+        "include_type": "types",
+        "issue_keys": ["types"],
+        "target_subdir": "unused-exported-types",
+        "entry_file": "types.ts",
+        "scope": "target_root",
+    },
 }
 
 
@@ -50,8 +106,12 @@ def save_json(path: Path, data: dict) -> None:
 
 
 def sync_lockfile() -> None:
-    root = repo_root()
-    proc = subprocess.run(["npm", "install", "--package-lock-only", "--ignore-scripts"], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["npm", "install", "--package-lock-only", "--ignore-scripts"],
+        cwd=repo_root(),
+        capture_output=True,
+        text=True,
+    )
     if proc.returncode != 0:
         print("[warn] Failed to sync package-lock.json. Run manually if needed:")
         print("       npm install --package-lock-only --ignore-scripts")
@@ -62,25 +122,26 @@ def sync_lockfile() -> None:
 def update_main_import(entry_file: Optional[str], subdir: str, add: bool) -> bool:
     if not entry_file:
         return False
+
     main_path = repo_root() / "src" / "main.jsx"
-    line = "import './knip-lab/{}/{}'; {}\n".format(subdir, entry_file, IMPORT_MARKER)
+    import_line = "import './knip-lab/{}/{}'; {}\n".format(subdir, entry_file, IMPORT_MARKER)
     current = main_path.read_text(encoding="utf-8")
 
     if add:
-        if line not in current:
-            main_path.write_text(line + current, encoding="utf-8")
+        if import_line not in current:
+            main_path.write_text(import_line + current, encoding="utf-8")
             return True
         return False
 
-    if line in current:
-        main_path.write_text(current.replace(line, ""), encoding="utf-8")
+    if import_line in current:
+        main_path.write_text(current.replace(import_line, ""), encoding="utf-8")
         return True
     return False
 
 
 def apply_scenario_create(key: str, target_root: Path, changed: List[Path]) -> None:
     root = repo_root()
-    subdir = SCENARIOS[key]["target_subdir"]
+    subdir = str(SCENARIOS[key]["target_subdir"])
 
     if key == "unused-files":
         p = target_root / "orphan.js"
@@ -145,9 +206,16 @@ def apply_scenario_create(key: str, target_root: Path, changed: List[Path]) -> N
 
 def apply_scenario_cleanup(key: str, target_root: Path, changed: List[Path]) -> None:
     root = repo_root()
-    subdir = SCENARIOS[key]["target_subdir"]
+    subdir = str(SCENARIOS[key]["target_subdir"])
 
-    if key in {"unused-files", "unused-exports", "unlisted-dependencies", "unresolved-imports", "duplicate-exports", "unused-exported-types"}:
+    if key in {
+        "unused-files",
+        "unused-exports",
+        "unlisted-dependencies",
+        "unresolved-imports",
+        "duplicate-exports",
+        "unused-exported-types",
+    }:
         if update_main_import(SCENARIOS[key]["entry_file"], subdir, add=False):
             changed.append(root / "src" / "main.jsx")
         if target_root.exists():
@@ -177,19 +245,94 @@ def apply_scenario_cleanup(key: str, target_root: Path, changed: List[Path]) -> 
         return
 
 
-def run_verify(expected_issue: str) -> int:
-    proc = subprocess.run(["npm", "run", "knip"], cwd=repo_root(), capture_output=True, text=True)
-    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    print(output.strip())
+def extract_json(stdout: str) -> dict:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.startswith("{") and line.endswith("}"):
+            return json.loads(line)
+    return {}
 
-    if expected_issue in output.lower():
-        print("[ok] Found expected issue hint: {}".format(expected_issue))
-        return 0
-    if proc.returncode != 0:
-        print("[warn] knip returned non-zero but exact issue text did not match. Check output manually.")
+
+def summarize_matches(data: dict, scenario: Dict[str, object], target_root: Path) -> Tuple[int, List[str]]:
+    include_type = str(scenario["include_type"])
+    issue_keys = [str(k) for k in scenario["issue_keys"]]
+    scope = str(scenario["scope"])
+
+    matches: List[str] = []
+
+    if include_type == "files":
+        for file_path in data.get("files", []):
+            if scope == "target_root":
+                abs_file = repo_root() / file_path
+                if not str(abs_file).startswith(str(target_root)):
+                    continue
+            matches.append(str(file_path))
+        return len(matches), matches
+
+    for issue in data.get("issues", []):
+        file_path = issue.get("file", "(unknown)")
+        if scope == "target_root" and file_path != "(unknown)":
+            abs_file = repo_root() / file_path
+            if not str(abs_file).startswith(str(target_root)):
+                continue
+
+        for key in issue_keys:
+            entries = issue.get(key, [])
+            if not isinstance(entries, list):
+                continue
+            for item in entries:
+                if isinstance(item, dict):
+                    name = item.get("name", "(unknown)")
+                    line = item.get("line")
+                    if line is None:
+                        matches.append("{} @ {}".format(name, file_path))
+                    else:
+                        matches.append("{} @ {}:{}".format(name, file_path, line))
+                else:
+                    matches.append("{} @ {}".format(item, file_path))
+
+    return len(matches), matches
+
+
+def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
+    include_type = str(scenario["include_type"])
+    expected_issue = str(scenario["expected_issue"])
+
+    cmd = ["npm", "run", "knip", "--", "--reporter", "json", "--include", include_type, "--no-exit-code"]
+    proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True)
+    if proc.stderr.strip():
+        print(proc.stderr.strip())
+
+    data = extract_json(proc.stdout)
+    if not data:
+        print("[error] Failed to parse Knip JSON output.")
+        print(proc.stdout.strip())
+        return 1
+
+    count, matches = summarize_matches(data, scenario, target_root)
+
+    print("verifySummary:")
+    print("- expectedIssue: {}".format(expected_issue))
+    print("- includeType: {}".format(include_type))
+    print("- detectedCount: {}".format(count))
+    print("- matches:")
+    if matches:
+        for item in matches[:20]:
+            print("  - {}".format(item))
+        if len(matches) > 20:
+            print("  - ... and {} more".format(len(matches) - 20))
+    else:
+        print("  - (none)")
+
+    if count > 0:
+        print("[ok] Expected issue detected")
         return 0
 
-    print("[error] Expected issue not found: {}".format(expected_issue))
+    if SCENARIO_KEY == "duplicate-exports":
+        print("[warn] No duplicates detected in current Knip version/output. This scenario may fall back to other issue types.")
+        return 0
+
+    print("[error] Expected issue not detected")
     return 1
 
 
@@ -200,22 +343,22 @@ def main() -> int:
     args = parser.parse_args()
 
     scenario = SCENARIOS[SCENARIO_KEY]
-    expected_issue = scenario["issue"]
-    target_root = resolve_target_root(args.targetRoot, scenario["target_subdir"])
+    target_root = resolve_target_root(args.targetRoot, str(scenario["target_subdir"]))
 
     print("skill: {}".format(SKILL_NAME))
     print("mode: {}".format(args.mode))
     print("targetRoot: {}".format(target_root))
-    print("expectedIssue: {}".format(expected_issue))
-    print("verifyCommand: npm run knip")
+    print("expectedIssue: {}".format(scenario["expected_issue"]))
+    print("verifyCommand: npm run knip -- --reporter json --include {} --no-exit-code".format(scenario["include_type"]))
 
     changed: List[Path] = []
+
     if args.mode == "create":
         apply_scenario_create(SCENARIO_KEY, target_root, changed)
     elif args.mode == "cleanup":
         apply_scenario_cleanup(SCENARIO_KEY, target_root, changed)
     else:
-        return run_verify(expected_issue)
+        return run_verify(scenario, target_root)
 
     print("changedFiles:")
     if changed:
@@ -223,6 +366,7 @@ def main() -> int:
             print("- {}".format(p))
     else:
         print("- (none)")
+
     return 0
 
 
