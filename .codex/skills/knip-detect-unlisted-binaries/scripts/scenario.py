@@ -294,6 +294,64 @@ def summarize_matches(data: dict, scenario: Dict[str, object], target_root: Path
     return len(matches), matches
 
 
+def line_preview(path: Path, center_line: Optional[int] = None, radius: int = 3, max_lines: int = 40) -> List[str]:
+    content = path.read_text(encoding="utf-8").splitlines()
+    total = len(content)
+
+    if total == 0:
+        return ["(empty file)"]
+
+    if center_line is not None and 1 <= center_line <= total:
+        start = max(1, center_line - radius)
+        end = min(total, center_line + radius)
+    else:
+        start = 1
+        end = min(total, max_lines)
+
+    rows = []
+    for idx in range(start, end + 1):
+        rows.append("{:>4} | {}".format(idx, content[idx - 1]))
+    if end < total:
+        rows.append("  ... | ({} more lines)".format(total - end))
+    return rows
+
+
+def find_line_number(path: Path, needle: str) -> Optional[int]:
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if needle in line:
+            return i
+    return None
+
+
+def print_change_preview(changed: List[Path], scenario_key: str) -> None:
+    root = repo_root()
+    print("changePreview:")
+
+    has_preview = False
+    for path in changed:
+        if not path.exists() or not path.is_file():
+            continue
+
+        rel = path.relative_to(root)
+        center = None
+
+        if path.name == "main.jsx":
+            center = find_line_number(path, IMPORT_MARKER)
+        elif path.name == "package.json":
+            if scenario_key == "unused-dependencies":
+                center = find_line_number(path, '"left-pad"')
+            elif scenario_key == "unlisted-binaries":
+                center = find_line_number(path, '"knip:scenario:unlisted-binary"')
+
+        print("- file: {}".format(rel))
+        for row in line_preview(path, center_line=center):
+            print("  {}".format(row))
+        has_preview = True
+
+    if not has_preview:
+        print("- (no file preview)")
+
+
 def run_verify(scenario: Dict[str, object], target_root: Path) -> int:
     include_type = str(scenario["include_type"])
     expected_issue = str(scenario["expected_issue"])
@@ -366,6 +424,9 @@ def main() -> int:
             print("- {}".format(p))
     else:
         print("- (none)")
+
+    if args.mode == "create":
+        print_change_preview(changed, SCENARIO_KEY)
 
     return 0
 

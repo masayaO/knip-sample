@@ -46,3 +46,9 @@ python3 .codex/skills/knip-detect-unused-files/scripts/scenario.py --mode cleanu
 
 - cleanupに失敗した場合は同じコマンドを再実行する。
 - `package.json` を変更するシナリオでは、必要に応じて `npm install --package-lock-only --ignore-scripts` を実行して lockfile を再同期する。
+
+## Reporting Rules
+
+- `create` 実行後は、標準出力の `changePreview` を要約せずにそのまま表示する。
+- 少なくとも1ファイル分は、行番号付きコード断片をそのまま示す。
+- `verify` 実行後は `verifySummary.detectedCount` と `matches` を必ず表示する。
